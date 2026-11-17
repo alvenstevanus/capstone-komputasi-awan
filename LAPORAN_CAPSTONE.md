@@ -181,8 +181,8 @@ Untuk pengembangan jangka panjang, direkomendasikan implementasi *auto-scaling g
 ---
 
 ## 9. Lampiran
-1. **Link Repository GitHub (Public)**: `https://github.com/[username]/capstone-app`
-2. **Link VPS Aktif (Live URL)**: `http://[IP-VPS]/api/queue`
+1. **Link Repository GitHub (Public)**: `https://github.com/alvenstevanus/capstone-komputasi-awan`
+2. **Link VPS Aktif (Live URL)**: `http://213.35.118.196/api/queue`
 3. **Link Video Demo (YouTube/Google Drive)**: `https://...`
 4. **Bukti Screenshot**:
    - Screenshot 1: Pipeline CI/CD GitHub Actions sukses (Hijau).
