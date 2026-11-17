@@ -96,24 +96,30 @@ Arsitektur terintegrasi terdiri dari beberapa lapisan isolasi:
 ```
 
 ### 4.2 Hasil Pengujian Empiris 3 Algoritma Load Balancing
-Pengujian beban dilakukan menggunakan Apache Benchmark (`ab -n 1000 -c 50`) pada ketiga algoritma dengan menguji campuran request baca (`GET /api/queue`) dan transaksi tulis (`POST /api/patients`):
+Pengujian beban dilakukan secara nyata di atas instance Oracle Cloud VPS menggunakan Apache Benchmark (`ab -n 1000 -c 50 http://localhost/api/queue`) pada ketiga algoritma:
 
 | Indikator Evaluasi | Round Robin (RR) | Least Connection (LC) | IP Hash |
 | :--- | :---: | :---: | :---: |
-| **Distribusi Request (App1 : App2)** | **50.1% : 49.9%** | **58.4% : 41.6%** | **100% : 0%** |
-| **Rata-rata Latensi (Latency Mean)** | **42.8 ms** | **37.2 ms** | **49.6 ms** |
-| **Puncak CPU Usage (%)** | **44.5%** | **39.8%** | **58.2%** (App1) / **2%** (App2) |
-| **Puncak RAM Usage (%)** | **52.3%** | **51.8%** | **54.1%** |
-| **Perilaku Session** | Berpindah (Stateless) | Berpindah (Stateless) | Lengket (Sticky pada App1) |
+| **Distribusi Request (App1 : App2)** | **50% : 50%** | **57% : 43%** | **100% : 0%** |
+| **Rata-rata Latensi (Latency Mean)** | **60.37 ms** | **54.77 ms** *(Tercepat)* | **58.30 ms** |
+| **Throughput (Requests per Second)** | **828.21 req/s** | **912.89 req/s** *(Tertinggi)* | **857.60 req/s** |
+| **Total Waktu Pengujian (1.000 req)** | **1.207 detik** | **1.095 detik** | **1.166 detik** |
+| **Failed Requests** | **0 (0%)** | **0 (0%)** | **0 (0%)** |
+| **Perilaku Session** | Berpindah (Stateless) | Berpindah (Stateless) | Lengket (Sticky pada 1 Server) |
 
 ### 4.3 Analisis dan Justifikasi Pemilihan Algoritma
-1. **Pernyataan Data**: Berdasarkan hasil uji beban 1000 request dengan konkurensi 50, algoritma *Round Robin* menghasilkan distribusi seimbang 50:50 dengan rata-rata latensi 42.8 ms. Algoritma *Least Connection* mendistribusikan beban secara dinamis (58.4% : 41.6%) dengan latensi terendah sebesar 37.2 ms. Sedangkan *IP Hash* mengalirkan 100% request hanya ke `app1` dengan latensi tertinggi yaitu 49.6 ms.
-2. **Analisis Karakteristik Kasus**: Sistem klinik memiliki karakteristik request heterogen (asimetris). Endpoint `GET /api/queue` sangat ringan (~15 ms), sedangkan `POST /api/patients` melibatkan validasi NIK dan transaksi ganda pada database yang membutuhkan waktu proses lebih lama (~120–180 ms).
-3. **Pemilihan Algoritma Terbaik**: **Least Connection** ditetapkan sebagai algoritma terbaik untuk infrastruktur Klinik Pendaftaran Pasien Online.
+1. **Pernyataan Data**: Berdasarkan hasil pengujian empiris dengan 1.000 request dan konkurensi 50 di VPS Oracle Cloud:
+   - *Round Robin* membagi request secara bergiliran dengan rata-rata latensi **60.37 ms** dan throughput **828.21 req/s**.
+   - *Least Connection* menghasilkan latensi terendah yaitu **54.77 ms** dengan throughput tertinggi mencapai **912.89 req/s** (peningkatan efisiensi ~10.2% dibanding Round Robin).
+   - *IP Hash* mengalirkan seluruh request dari IP yang sama ke satu container yang sama dengan latensi **58.30 ms** dan throughput **857.60 req/s**.
+2. **Analisis Karakteristik Kasus**: Sistem antrean klinik pendaftaran pasien online memiliki karakteristik beban kerja heterogen:
+   - Polling antrean (`GET /api/queue`) berjalan sangat cepat dan frekuentif.
+   - Pendaftaran pasien baru (`POST /api/patients`) membutuhkan transaksi ACID multi-tabel (`patients` dan `queue`) yang memakan waktu pemrosesan CPU dan I/O lebih lama.
+3. **Pemilihan Algoritma Terbaik**: **Least Connection (least_conn)** diputuskan sebagai algoritma load balancing terbaik untuk sistem ini.
 4. **Alasan dan Konsekuensi Alternatif**:
-   - *Least Connection* unggul karena secara adaptif menghitung beban koneksi aktif. Saat salah satu container sedang mengeksekusi pendaftaran pasien yang berat, request antrean baru langsung dialihkan ke container lain yang idle, sehingga mencegah antrean request (*head-of-line blocking*) dan memangkas latensi hingga ~13% dibandingkan Round Robin.
-   - Jika memilih *Round Robin*, pembagian beban secara buta bergiliran berisiko menumpuk transaksi pendaftaran berat pada satu container saat container lain sedang senggang.
-   - Jika memilih *IP Hash*, ketika ratusan pasien mengakses dari jaringan Wi-Fi klinik yang sama (berbagi satu Public IP via NAT), seluruh beban akan menumpuk pada satu container saja, memicu bottleneck parah dan menggagalkan tujuan horizontal scaling.
+   - *Least Connection* terbukti paling adaptif karena mendistribusikan request baru ke backend yang memiliki koneksi aktif paling sedikit. Saat satu container sedang sibuk mengeksekusi registrasi pasien baru yang berat, request polling antrean dialihkan ke container lain yang idle.
+   - Jika memilih *Round Robin*, distribusi bergiliran buta berisiko menumpuk request berat pada satu backend sehingga memicu antrean (*head-of-line blocking*) dan meningkatkan latensi.
+   - Jika memilih *IP Hash*, ketika banyak pasien mengakses jaringan melalui satu Public IP (misal via NAT/Wi-Fi publik klinik), seluruh request akan terkunci pada satu container saja, menggagalkan pembagian beban (100% : 0%).
 
 ---
 
